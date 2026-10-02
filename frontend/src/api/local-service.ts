@@ -1,5 +1,6 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
+import { CONSERVE_KEY, runRepairTransition } from '@/data/conserve-flow'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
@@ -30,6 +31,11 @@ export function listEntries(key: string, filters: Record<string, string> = {}): 
 
 export function runAction(key: string, id: number, action: string): ActionResult {
   const meta = moduleMeta(key)
+  // 标本修复单走专属的共用实现：复工/完工/退回三个入口都在 conserve-flow 里判断，
+  // 完工与退回共用同一份审查，状态只许逐段推进，完工批复还会回写验收台账。
+  if (key === CONSERVE_KEY) {
+    return runRepairTransition(id, action)
+  }
   const target = meta.actionTargets[action]
   if (!target) {
     return { ok: false, message: `${meta.entity}没有登记「${action}」这个动作` }
