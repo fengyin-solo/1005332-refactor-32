@@ -1,9 +1,22 @@
 import { MODULE_BY_KEY } from '@/data/modules'
 import { allRows, listRows, resetRows, saveRows } from '@/data/local-store'
+import {
+  ACCEPTANCE_KEY,
+  applyRepairAction,
+  CONSERVE_KEY,
+  type RepairAction,
+} from '@/data/conserve'
 import type { ActionResult, EntryRow, ModuleMeta, OverviewResult, PageResult } from '@/data/types'
 
 // 会写进数据的「往回走」动作：命中就把这条记录标成异常态，看板上能一眼看出来。
 const NEGATIVE_ACTIONS = ['撤销', '作废', '拒绝', '驳回', '停用', '忽略', '下线', '回滚']
+
+function todayText(): string {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}
 
 export function moduleMeta(key: string): ModuleMeta {
   const meta = MODULE_BY_KEY.get(key)
@@ -39,6 +52,29 @@ export function runAction(key: string, id: number, action: string): ActionResult
   if (index < 0) {
     return { ok: false, message: `没有找到编号为 ${id} 的${meta.entity}` }
   }
+
+  // 标本修复：完工与退回共用 data/conserve.ts 这一份判定，
+  // 含四项复核、状态逐段推进、冲突按原单裁决、完工批复回写验收台账。
+  if (key === CONSERVE_KEY) {
+    const ledger = listRows(ACCEPTANCE_KEY)
+    const result = applyRepairAction({
+      orders: rows,
+      ledger,
+      orderId: id,
+      action: action as RepairAction,
+      today: todayText(),
+    })
+    if (!result.ok) {
+      return { ok: false, message: result.message }
+    }
+    // 老数据原样保留：只在动作成功时落库，列表读取不会重算已有结论。
+    saveRows(CONSERVE_KEY, result.orders)
+    if (result.ledger !== ledger) {
+      saveRows(ACCEPTANCE_KEY, result.ledger)
+    }
+    return { ok: true, message: result.message }
+  }
+
   const current = String(rows[index].status)
   if (current === target) {
     return { ok: false, message: `${meta.entity}已经是「${target}」，不用重复操作` }
